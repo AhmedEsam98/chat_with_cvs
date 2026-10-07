@@ -18,15 +18,15 @@ Powered by **Azure AI Search (Hybrid BM25 + Dense Vector HNSW)**, **FlashRank Cr
 
 ```mermaid
 flowchart TD
-    classDef azure fill:#EBF3FC,stroke:#0078D4,stroke-width:2px,color:#004578;
-    classDef redis fill:#FEE2E2,stroke:#DC2626,stroke-width:2px,color:#991B1B;
-    classDef ai fill:#F3E8FF,stroke:#7C3AED,stroke-width:2px,color:#581C87;
-    classDef success fill:#ECFDF5,stroke:#059669,stroke-width:2px,color:#065F46;
-    classDef warning fill:#FEF3C7,stroke:#D97706,stroke-width:2px,color:#92400E;
-    classDef inputNode fill:#F0F9FF,stroke:#0284C7,stroke-width:2px,color:#0369A1;
-    classDef neutral fill:#F8FAFC,stroke:#64748B,stroke-width:2px,color:#334155;
+    classDef azure fill:#DBEAFE,stroke:#2563EB,stroke-width:2px,color:#1E3A8A;
+    classDef redis fill:#FEE2E2,stroke:#EF4444,stroke-width:2px,color:#991B1B;
+    classDef ai fill:#EDE9FE,stroke:#8B5CF6,stroke-width:2px,color:#4C1D95;
+    classDef success fill:#D1FAE5,stroke:#10B981,stroke-width:2px,color:#064E3B;
+    classDef warning fill:#FEF3C7,stroke:#F59E0B,stroke-width:2px,color:#78350F;
+    classDef inputNode fill:#E0F2FE,stroke:#0284C7,stroke-width:2px,color:#075985;
+    classDef neutral fill:#FFFFFF,stroke:#64748B,stroke-width:2px,color:#1E293B;
 
-    subgraph Ingestion ["1. Multi-Format Ingestion Pipeline"]
+    subgraph Ingestion ["📁 1. Multi-Format Ingestion Pipeline"]
         A["📄 Raw CVs (PDF / DOCX / TXT)"]:::inputNode --> B["⚙️ Multi-threaded Extractor"]:::neutral
         B --> C["✂️ Section-Aware Chunker"]:::ai
         C --> D["🧠 Azure OpenAI (text-embedding-3-small)"]:::azure
@@ -34,7 +34,7 @@ flowchart TD
         B --> F[("📦 Azure Blob Storage (Archival)")]:::azure
     end
 
-    subgraph Query ["2. High-Precision Query & Retrieval Pipeline"]
+    subgraph Query ["⚡ 2. High-Precision Query & Retrieval Pipeline"]
         Q["👤 Recruiter Query"]:::inputNode --> R{"🔀 Intent Router"}:::warning
         R -- "Greetings / Off-Topic" --> R_FAST["⚡ Fast-Path Response (< 1ms)"]:::success
         R -- "CV-Related" --> TIER1{"⚡ Redis Query Vector Cache"}:::redis
@@ -51,6 +51,9 @@ flowchart TD
         AUDIT --> FINAL["💬 Recruiter UI (🟢 100% Grounded)"]:::success
         FINAL --> CACHE_SET[("💾 Store in Redis Semantic Cache")]:::redis
     end
+
+    style Ingestion fill:#EFF6FF,stroke:#3B82F6,stroke-width:2px,stroke-dasharray: 4 4,color:#1E40AF
+    style Query fill:#FAF5FF,stroke:#8B5CF6,stroke-width:2px,stroke-dasharray: 4 4,color:#5B21B6
 ```
 
 ### The End-to-End Pipeline:
