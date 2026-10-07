@@ -18,38 +18,30 @@ Powered by **Azure AI Search (Hybrid BM25 + Dense Vector HNSW)**, **FlashRank Cr
 
 ```mermaid
 flowchart TD
-    classDef azure fill:#0078D4,stroke:#005A9E,stroke-width:2px,color:#ffffff;
-    classDef redis fill:#DC382D,stroke:#991B1B,stroke-width:2px,color:#ffffff;
-    classDef ai fill:#7C3AED,stroke:#5B21B6,stroke-width:2px,color:#ffffff;
-    classDef success fill:#059669,stroke:#047857,stroke-width:2px,color:#ffffff;
-    classDef warning fill:#D97706,stroke:#B45309,stroke-width:2px,color:#ffffff;
-    classDef inputNode fill:#0F172A,stroke:#38BDF8,stroke-width:2px,color:#38BDF8;
-    classDef neutral fill:#1E293B,stroke:#475569,stroke-width:2px,color:#F8FAFC;
-
     subgraph Ingestion ["1. Multi-Format Ingestion Pipeline"]
-        A["📄 Raw CVs (PDF / DOCX / TXT)"]:::inputNode --> B["⚙️ Multi-threaded Extractor"]:::neutral
-        B --> C["✂️ Section-Aware Chunker"]:::ai
-        C --> D["🧠 Azure OpenAI (text-embedding-3-small)"]:::azure
-        D --> E[("🔍 Azure AI Search (Hybrid BM25 + HNSW)")]:::azure
-        B --> F[("📦 Azure Blob Storage (Archival)")]:::azure
+        A["📄 Raw CVs (PDF / DOCX / TXT)"] --> B["⚙️ Multi-threaded Extractor"]
+        B --> C["✂️ Section-Aware Chunker"]
+        C --> D["🧠 Azure OpenAI (text-embedding-3-small)"]
+        D --> E[("🔍 Azure AI Search (Hybrid BM25 + HNSW)")]
+        B --> F[("📦 Azure Blob Storage (Archival)")]
     end
 
     subgraph Query ["2. High-Precision Query & Retrieval Pipeline"]
-        Q["👤 Recruiter Query"]:::inputNode --> R{"🔀 Intent Router"}:::warning
-        R -- "Greetings / Off-Topic" --> R_FAST["⚡ Fast-Path Response (< 1ms)"]:::success
-        R -- "CV-Related" --> TIER1{"⚡ Redis Query Vector Cache"}:::redis
-        TIER1 -- "Hit" --> VEC["🎯 Cached Vector (0.005s)"]:::success
-        TIER1 -- "Miss" --> EMB["🧠 Azure OpenAI Embedding"]:::azure --> VEC
-        VEC --> SEM{"⚡ Redis Semantic Cache (>= 0.92)"}:::redis
-        SEM -- "Hit" --> HIT_OUT["🚀 Instant Cached Answer (~0.013s)"]:::success
-        SEM -- "Miss" --> S1["🔍 Stage 1: Azure AI Search (Hybrid k=20)"]:::azure
-        S1 --> S2["🎯 Stage 2: FlashRank Re-ranker"]:::ai
-        S2 --> GATE{"🛡️ Deterministic Role Gate"}:::warning
-        GATE -- "Role Not Found" --> REFUSAL["🚫 Refusal (Zero Hallucination)"]:::warning
-        GATE -- "Validated" --> GEN["🤖 Azure OpenAI GPT-4o (Streaming)"]:::azure
-        GEN --> AUDIT["🛡️ Hallucination Auditor"]:::success
-        AUDIT --> FINAL["💬 Recruiter UI (🟢 100% Grounded)"]:::success
-        FINAL --> CACHE_SET[("💾 Store in Redis Semantic Cache")]:::redis
+        Q["👤 Recruiter Query"] --> R{"🔀 Intent Router"}
+        R -- "Greetings / Off-Topic" --> R_FAST["⚡ Fast-Path Response (< 1ms)"]
+        R -- "CV-Related" --> TIER1{"⚡ Redis Query Vector Cache"}
+        TIER1 -- "Hit" --> VEC["🎯 Cached Vector (0.005s)"]
+        TIER1 -- "Miss" --> EMB["🧠 Azure OpenAI Embedding"] --> VEC
+        VEC --> SEM{"⚡ Redis Semantic Cache (>= 0.92)"}
+        SEM -- "Hit" --> HIT_OUT["🚀 Instant Cached Answer (~0.013s)"]
+        SEM -- "Miss" --> S1["🔍 Stage 1: Azure AI Search (Hybrid k=20)"]
+        S1 --> S2["🎯 Stage 2: FlashRank Re-ranker"]
+        S2 --> GATE{"🛡️ Deterministic Role Gate"}
+        GATE -- "Role Not Found" --> REFUSAL["🚫 Refusal (Zero Hallucination)"]
+        GATE -- "Validated" --> GEN["🤖 Azure OpenAI GPT-4o (Streaming)"]
+        GEN --> AUDIT["🛡️ Hallucination Auditor"]
+        AUDIT --> FINAL["💬 Recruiter UI (🟢 100% Grounded)"]
+        FINAL --> CACHE_SET[("💾 Store in Redis Semantic Cache")]
     end
 ```
 
