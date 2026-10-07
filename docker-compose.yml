@@ -1,0 +1,53 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: cv_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - cv_network
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cv_app
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    environment:
+      # Connects to the Redis container within the Docker network
+      - REDIS_URL=redis://redis:6379/0
+      - REDIS_ENABLED=true
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+      - ./generation:/app/generation
+      - ./retrieval:/app/retrieval
+      - ./ingestion:/app/ingestion
+      - ./app.py:/app/app.py
+      - ./config.py:/app/config.py
+      - ./cache_manager.py:/app/cache_manager.py
+      - ./clients.py:/app/clients.py
+    networks:
+      - cv_network
+
+volumes:
+  redis_data:
+
+networks:
+  cv_network:
+    driver: bridge

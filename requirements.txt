@@ -1,0 +1,10 @@
+streamlit
+openai>=1.40
+azure-search-documents>=11.4.0
+azure-storage-blob
+pypdf
+python-docx
+python-dotenv
+redis
+numpy
+flashrank

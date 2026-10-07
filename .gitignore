@@ -1,0 +1,40 @@
+# Environment & Secrets (NEVER COMMIT)
+.env
+.env.*
+!.env example
+!.env.example
+
+# Excluded Media per configuration
+pipeline.png
+
+# Python Bytecode & Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# Test Outputs & Generated Reports
+tests/output/
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+
+# IDE & Editor Settings
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS Artifacts
+.DS_Store
+Thumbs.db
+
+# Agent Artifacts
+.agents/
+
+# Logs
+*.log
