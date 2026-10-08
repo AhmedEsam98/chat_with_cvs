@@ -10,7 +10,7 @@
 
 An enterprise-grade, high-performance **Retrieval-Augmented Generation (RAG)** application built for HR talent acquisition and technical candidate assessment. 
 
-Powered by **Azure AI Search (Hybrid BM25 + Dense Vector HNSW)**, **FlashRank Cross-Encoder Re-ranking**, **Azure OpenAI GPT-4o**, and an ultra-fast **Two-Tier Redis Semantic Cache**, the system allows recruiters to ingest, search, analyze, and compare candidate resumes with **sub-10ms repeated query latency**, strict factual grounding, and automated hallucination auditing.
+Powered by **Azure AI Search (Hybrid BM25 + Dense Vector HNSW)**, **FlashRank Cross-Encoder Re-ranking**, **Azure OpenAI GPT-4o-mini**, and an ultra-fast **Two-Tier Redis Semantic Cache**, the system allows recruiters to ingest, search, analyze, and compare candidate resumes with **sub-10ms repeated query latency**, strict factual grounding, and automated hallucination auditing.
 
 ---
 
@@ -46,7 +46,7 @@ flowchart TD
         S1 --> S2["🎯 Stage 2: FlashRank Re-ranker"]:::ai
         S2 --> GATE{"🛡️ Deterministic Role Gate"}:::warning
         GATE -- "Role Not Found" --> REFUSAL["🚫 Refusal (Zero Hallucination)"]:::warning
-        GATE -- "Validated" --> GEN["🤖 Azure OpenAI GPT-4o (Streaming)"]:::azure
+        GATE -- "Validated" --> GEN["🤖 Azure OpenAI GPT-4o-mini (Streaming)"]:::azure
         GEN --> AUDIT["🛡️ Hallucination Auditor"]:::success
         AUDIT --> FINAL["💬 Recruiter UI (🟢 100% Grounded)"]:::success
         FINAL --> CACHE_SET[("💾 Store in Redis Semantic Cache")]:::redis
@@ -145,7 +145,7 @@ The interactive web UI provides talent acquisition teams with full transparency 
 
 * **Frontend**: [Streamlit](https://streamlit.io/)
 * **Cloud Search & Storage**: [Azure AI Search](https://azure.microsoft.com/en-us/products/ai-services/ai-search), [Azure Blob Storage](https://azure.microsoft.com/en-us/products/storage/blobs)
-* **LLM & Embeddings**: [Azure OpenAI](https://azure.microsoft.com/en-us/products/ai-services/openai-service) (`gpt-4o-mini` / `gpt-4o`, `text-embedding-3-small`)
+* **LLM & Embeddings**: [Azure OpenAI](https://azure.microsoft.com/en-us/products/ai-services/openai-service) (Deployments: `gpt-4.1-mini` / `gpt-4o-mini`, `text-embedding-3-small`)
 * **Re-ranking**: [FlashRank](https://github.com/PrithivirajDamodaran/FlashRank) (Local ONNX Cross-Encoder)
 * **Caching**: [Redis 7](https://redis.io/) + [NumPy](https://numpy.org/) Vector Cosine Similarity
 * **Document Parsing**: `pypdf`, `python-docx`
@@ -201,7 +201,7 @@ chat-with-cvs/
 * Python 3.11 or 3.12 (or Conda)
 * [Docker Desktop](https://www.docker.com/products/docker-desktop/) (for Redis caching)
 * An active Microsoft Azure Subscription with:
-  * Azure OpenAI resource (Deployments: `gpt-4o-mini` and `text-embedding-3-small`)
+  * Azure OpenAI resource (Deployments: `gpt-4.1-mini` or `gpt-4o-mini`, and `text-embedding-3-small`)
   * Azure AI Search resource
   * Azure Storage Account (Blob Storage)
 
@@ -230,36 +230,35 @@ pip install -r requirements.txt
 
 ### 3. Configure Environment Variables
 
-Create a `.env` file in the project root:
+Create a `.env` file in the project root (refer to `.env example`):
 
 ```env
 # Azure OpenAI
-AOAI_ENDPOINT=https://<your-resource-name>.openai.azure.com/
-AOAI_API_KEY=<your-azure-openai-key>
-AOAI_API_VERSION=2024-02-01
-CHAT_MODEL=gpt-4o-mini
-EMBED_MODEL=text-embedding-3-small
-EMBED_DIM=1536
-EMBED_BATCH_SIZE=16
+AZURE_OPENAI_ENDPOINT=https://<your-resource-name>.openai.azure.com/
+AZURE_OPENAI_API_KEY=<your-azure-openai-key>
+AZURE_OPENAI_API_VERSION=2024-02-01
+AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-4.1-mini
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-3-small
 
 # Azure AI Search
-SEARCH_ENDPOINT=https://<your-search-name>.search.windows.net
-SEARCH_KEY=<your-azure-search-admin-key>
-INDEX_NAME=cv-index
+AZURE_SEARCH_ENDPOINT=https://<your-search-name>.search.windows.net
+AZURE_SEARCH_KEY=<your-azure-search-admin-key>
+AZURE_SEARCH_INDEX=cv-index
 
 # Azure Blob Storage
-STORAGE_CONNECTION_STRING=<your-storage-connection-string>
-CONTAINER=cv-resumes
+AZURE_STORAGE_CONNECTION_STRING=<your-storage-connection-string>
+AZURE_STORAGE_CONTAINER=cvs
 
-# Redis Cache
+# Redis Cache (Optional - defaults to redis://localhost:6379/0, with in-memory fallback)
 REDIS_URL=redis://localhost:6379/0
 REDIS_ENABLED=true
 REDIS_CACHE_TTL=3600
 SEMANTIC_CACHE_ENABLED=true
 SEMANTIC_CACHE_THRESHOLD=0.92
 
-# Re-ranker
+# Re-ranker (FlashRank Cross-Encoder)
 RERANKER_ENABLED=true
+RERANKER_MODEL=ms-marco-TinyBERT-L-2-v2
 RERANK_TOP_N=20
 ```
 
