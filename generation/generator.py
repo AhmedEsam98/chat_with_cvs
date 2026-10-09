@@ -73,7 +73,7 @@ def answer_stream(question: str, history: list[dict], hits: list[dict]):
 
     stream = get_openai_client().chat.completions.create(
         model=config.CHAT_MODEL, messages=messages,
-        temperature=0.0, stream=True)
+        temperature=getattr(config, "TEMPERATURE", 0.0), stream=True)
 
     full_response = []
     for chunk in stream:
