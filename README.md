@@ -273,7 +273,7 @@ Spins up both the Redis cache container and the Streamlit app:
 ```bash
 docker-compose up --build
 ```
-Access the application at `http://localhost:8501`.
+Access the application at `http://localhost:8505`.
 
 ---
 
@@ -287,7 +287,7 @@ Access the application at `http://localhost:8501`.
    ```bash
    streamlit run app.py
    ```
-3. Open your browser at `http://localhost:8501`.
+3. Open your browser at `http://localhost:8505`.
 
 ---
 

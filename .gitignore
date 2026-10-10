@@ -38,3 +38,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Streamlit local config
+.streamlit/

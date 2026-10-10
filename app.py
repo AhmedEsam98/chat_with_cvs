@@ -42,77 +42,14 @@ with st.sidebar:
         if result["succeeded"]:
             st.success(f"✅ {len(result['succeeded'])} CV(s) processed in **{ingest_elapsed:.2f}s**!")
 
-    st.divider()
-    with st.expander("⚙️ Pipeline Configuration", expanded=True):
-        st.markdown("##### 🔍 Retrieval & Search")
-        top_k = st.slider(
-            "Chunks passed to LLM (k)",
-            min_value=1,
-            max_value=20,
-            value=10,
-            help="Number of most relevant CV excerpts provided to the model.",
-        )
-        use_reranker = st.toggle(
-            "FlashRank Re-ranker",
-            value=getattr(config, "RERANKER_ENABLED", True),
-            help="Cross-encoder re-ranking (ms-marco-TinyBERT) for contextual precision.",
-        )
-        config.RERANKER_ENABLED = use_reranker
+    top_k = st.slider("Chunks retrieved per question", 3, 20, 10)
 
-        rerank_top_n = st.slider(
-            "Candidate Pool (Pre-Rerank)",
-            min_value=10,
-            max_value=50,
-            value=getattr(config, "RERANK_TOP_N", 20),
-            disabled=not use_reranker,
-            help="Number of initial candidate chunks retrieved from Azure AI Search before re-ranking.",
-        )
-        config.RERANK_TOP_N = rerank_top_n
-
-        st.markdown("##### ⚡ Semantic Caching")
-        use_semantic_cache = st.toggle(
-            "Enable Semantic Cache",
-            value=getattr(config, "SEMANTIC_CACHE_ENABLED", True),
-            help="Reuses answers and retrieval results for semantically equivalent queries.",
-        )
-        config.SEMANTIC_CACHE_ENABLED = use_semantic_cache
-
-        cache_threshold = st.slider(
-            "Similarity Threshold",
-            min_value=0.80,
-            max_value=0.99,
-            value=float(getattr(config, "SEMANTIC_CACHE_THRESHOLD", 0.92)),
-            step=0.01,
-            disabled=not use_semantic_cache,
-            help="Cosine similarity threshold (higher = stricter match requirement).",
-        )
-        config.SEMANTIC_CACHE_THRESHOLD = cache_threshold
-
-        if st.button("🗑️ Purge Cache", help="Clears Redis query vector and semantic answer caches."):
-            cache_clear("cv:")
-            st.success("Caches purged successfully!")
-
-        st.markdown("##### 🤖 Generation & Guardrails")
-        temperature = st.slider(
-            "LLM Temperature",
-            min_value=0.0,
-            max_value=1.0,
-            value=float(getattr(config, "TEMPERATURE", 0.0)),
-            step=0.05,
-            help="0.0 = deterministic and strictly factual; higher = more varied phrasing.",
-        )
-        config.TEMPERATURE = temperature
-
-        use_auditor = st.toggle(
-            "Faithfulness Auditor",
-            value=getattr(config, "AUDITOR_ENABLED", True),
-            help="Audits answer claims against CV sources to detect hallucinations.",
-        )
-        config.AUDITOR_ENABLED = use_auditor
-
-    # Backend Status Indicator
+    # Cache & Re-ranker indicator
     redis_status = "🟢 Redis Connected" if is_redis_available() else "⚪ In-Memory Fallback"
-    st.caption(f"Backend: **{redis_status}** • Model: `{config.CHAT_MODEL}`")
+    sem_status = f"⚡ Semantic Active (≥{config.SEMANTIC_CACHE_THRESHOLD})" if getattr(config, "SEMANTIC_CACHE_ENABLED", True) else "Semantic Off"
+    rerank_status = "🎯 FlashRank Re-ranker ON" if getattr(config, "RERANKER_ENABLED", True) else "Re-ranker Off"
+    st.caption(f"Cache: **{redis_status}** • **{sem_status}**")
+    st.caption(f"Re-ranker: **{rerank_status}**")
 
     if st.session_state.indexed:
         st.subheader("Indexed CVs")
@@ -197,27 +134,25 @@ else:
                             st.markdown(f"**{h['cv_name']}**{score_badge}")
                             st.caption(h["content"][:300] + "...")
 
-                # Run Hallucination / Faithfulness Audit (if enabled)
-                eval_result = None
-                if getattr(config, "AUDITOR_ENABLED", True):
-                    with st.spinner("Auditing answer faithfulness..."):
-                        eval_result = check_hallucination(reply, hits)
+                # Run Hallucination / Faithfulness Audit
+                with st.spinner("Auditing answer faithfulness..."):
+                    eval_result = check_hallucination(reply, hits)
 
-                    score_pct = int(eval_result.get("score", 1.0) * 100)
-                    if eval_result.get("is_grounded", True):
-                        st.caption(
-                            f"🛡️ **Faithfulness: 🟢 {score_pct}% Grounded** "
-                            f"({eval_result.get('grounded_claims_count', 0)}/{eval_result.get('total_claims', 0)} claims verified)"
-                        )
-                    else:
-                        st.warning(
-                            f"⚠️ **Potential Hallucination Detected (Faithfulness: {score_pct}%)**"
-                        )
-                        if eval_result.get("hallucinations"):
-                            with st.expander("⚠️ Flagged Claims"):
-                                for h in eval_result["hallucinations"]:
-                                    st.markdown(f"• **Claim:** *{h.get('claim')}*")
-                                    st.caption(f"  Reason: {h.get('reason')}")
+                score_pct = int(eval_result.get("score", 1.0) * 100)
+                if eval_result.get("is_grounded", True):
+                    st.caption(
+                        f"🛡️ **Faithfulness: 🟢 {score_pct}% Grounded** "
+                        f"({eval_result.get('grounded_claims_count', 0)}/{eval_result.get('total_claims', 0)} claims verified)"
+                    )
+                else:
+                    st.warning(
+                        f"⚠️ **Potential Hallucination Detected (Faithfulness: {score_pct}%)**"
+                    )
+                    if eval_result.get("hallucinations"):
+                        with st.expander("⚠️ Flagged Claims"):
+                            for h in eval_result["hallucinations"]:
+                                st.markdown(f"• **Claim:** *{h.get('claim')}*")
+                                st.caption(f"  Reason: {h.get('reason')}")
 
                 st.caption(
                     f"⏱️ **{t_total:.2f}s** "
