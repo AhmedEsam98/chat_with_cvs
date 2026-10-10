@@ -5,7 +5,7 @@ import config
 from cache_manager import cache_clear, is_redis_available
 from generation import answer_stream, check_hallucination, route_question
 from ingestion import process_cvs
-from retrieval import retrieve
+from retrieval import retrieve, rewrite_query
 
 st.set_page_config(page_title="Chat with CVs", page_icon="📄", layout="wide")
 st.title("📄 Chat with CVs")
@@ -47,9 +47,10 @@ with st.sidebar:
     # Cache & Re-ranker indicator
     redis_status = "🟢 Redis Connected" if is_redis_available() else "⚪ In-Memory Fallback"
     sem_status = f"⚡ Semantic Active (≥{config.SEMANTIC_CACHE_THRESHOLD})" if getattr(config, "SEMANTIC_CACHE_ENABLED", True) else "Semantic Off"
-    rerank_status = "🎯 FlashRank Re-ranker ON" if getattr(config, "RERANKER_ENABLED", True) else "Re-ranker Off"
+    rerank_status = "🎯 FlashRank ON" if getattr(config, "RERANKER_ENABLED", True) else "Re-ranker Off"
+    rewrite_status = "🔄 Rewriter ON" if getattr(config, "QUERY_REWRITE_ENABLED", True) else "Rewriter Off"
     st.caption(f"Cache: **{redis_status}** • **{sem_status}**")
-    st.caption(f"Re-ranker: **{rerank_status}**")
+    st.caption(f"Pipeline: **{rerank_status}** • **{rewrite_status}**")
 
     if st.session_state.indexed:
         st.subheader("Indexed CVs")
@@ -67,6 +68,8 @@ else:
     for m in st.session_state.messages:
         with st.chat_message(m["role"]):
             st.markdown(m["content"])
+            if m.get("rewritten_query"):
+                st.caption(f"🔄 *Conversational Search:* `{m['rewritten_query']}`")
             if "sources" in m and m["sources"]:
                 with st.expander("Sources"):
                     for h in m["sources"]:
@@ -115,9 +118,14 @@ else:
                     "content": reply,
                 })
             else:
+                # 2. Conversational Query Rewriter (Resolves pronouns and follow-up context)
+                search_query, was_rewritten = rewrite_query(question, st.session_state.messages[:-1])
+                if was_rewritten:
+                    st.caption(f"🔄 *Conversational Search:* `{search_query}`")
+
                 # Measure retrieval latency
                 t0 = time.perf_counter()
-                hits = retrieve(question, top_k)
+                hits = retrieve(search_query, top_k)
                 t_retrieval = time.perf_counter() - t0
 
                 # Measure generation latency
@@ -162,6 +170,7 @@ else:
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": reply,
+                    "rewritten_query": search_query if was_rewritten else None,
                     "sources": hits,
                     "eval": eval_result,
                     "latency": {

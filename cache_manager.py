@@ -94,6 +94,39 @@ def get_query_vector(query_text: str) -> Optional[list[float]]:
     return _memory_cache.get(key)
 
 
+def cache_get_json(key: str) -> Optional[Any]:
+    """Retrieve and deserialize a JSON-encoded value from Redis or in-memory cache."""
+    client = get_redis_client()
+    if client is not None:
+        try:
+            val = client.get(key)
+            if val is not None:
+                return json.loads(val)
+        except Exception as exc:
+            logger.error(f"Redis cache_get_json error: {exc}")
+    raw_mem = _memory_cache.get(key)
+    if raw_mem is not None:
+        try:
+            return json.loads(raw_mem) if isinstance(raw_mem, str) else raw_mem
+        except Exception:
+            return raw_mem
+    return None
+
+
+def cache_set_json(key: str, value: Any, ttl: Optional[int] = None) -> None:
+    """Serialize and store a JSON-compatible value in Redis or in-memory cache."""
+    ttl = ttl or getattr(config, "REDIS_CACHE_TTL", 3600)
+    serialized = json.dumps(value)
+    client = get_redis_client()
+    if client is not None:
+        try:
+            client.set(key, serialized, ex=ttl)
+            return
+        except Exception as exc:
+            logger.error(f"Redis cache_set_json error: {exc}")
+    _memory_cache[key] = value
+
+
 # ── Semantic Vector Cache ─────────────────────────────────────────────────────
 
 def _compute_cosine_similarities(query_vec: list[float], matrix_vecs: list[list[float]]) -> list[float]:

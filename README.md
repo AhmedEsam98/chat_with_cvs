@@ -37,7 +37,8 @@ flowchart TD
     subgraph Query ["⚡ 2. High-Precision Query & Retrieval Pipeline"]
         Q["👤 Recruiter Query"]:::inputNode --> R{"🔀 Intent Router"}:::warning
         R -- "Greetings / Off-Topic" --> R_FAST["⚡ Fast-Path Response (< 1ms)"]:::success
-        R -- "CV-Related" --> TIER1{"⚡ Redis Query Vector Cache"}:::redis
+        R -- "CV-Related" --> REW["🔄 Conversational Query Rewriter"]:::ai
+        REW --> TIER1{"⚡ Redis Query Vector Cache"}:::redis
         TIER1 -- "Hit" --> VEC["🎯 Cached Vector (0.005s)"]:::success
         TIER1 -- "Miss" --> EMB["🧠 Azure OpenAI Embedding"]:::azure --> VEC
         VEC --> SEM{"⚡ Redis Semantic Cache (>= 0.92)"}:::redis
@@ -91,20 +92,26 @@ flowchart TD
    - Keyword fast-path identifies CV queries instantly with **0ms latency overhead**.
    - Ambiguous queries are classified via a fast LLM gate; off-topic questions bypass search entirely to save compute and API costs.
 
-5. **Two-Stage High-Precision Retrieval**:
+5. **Conversational Query Rewriter (Multi-Turn Resolution)**:
+   - Resolves ambiguous pronouns (*"he"*, *"she"*, *"his"*, *"their"*, *"this candidate"*) and elliptical follow-up questions (*"What about Flutter?"*, *"Where did he study?"*) using prior dialogue turns.
+   - Converts conversational follow-ups into standalone, search-optimized queries so retrieval doesn't miss candidate context.
+   - Built-in heuristic fast-path bypasses standalone questions with **0ms latency** and zero API calls.
+   - Caches rewritten queries in Redis to accelerate repeated conversational flows.
+
+6. **Two-Stage High-Precision Retrieval**:
    - **Stage 1 (Coarse)**: Azure AI Search hybrid retrieval (BM25 keyword search + HNSW dense vector search) retrieves the top candidate pool.
    - **Stage 2 (Fine)**: Local **FlashRank** cross-encoder model (`ms-marco-TinyBERT`) re-ranks candidate chunks for contextual relevance.
 
-6. **Deterministic Position & Role Validation Gate**:
+7. **Deterministic Position & Role Validation Gate**:
    - Validates candidate titles against a structured role taxonomy (e.g. recognizing that an *"Agentic AI Developer"* is a specialization under *"AI Developer"*).
    - If a requested position does not exist in the CVs, returns an honest refusal without wasting LLM tokens or guessing.
 
-7. **Hybrid Two-Tier Redis Caching**:
+8. **Hybrid Two-Tier Redis Caching**:
    - **Tier 1 (Exact Query Vector Cache)**: Stores query embeddings in Redis RAM, eliminating the 350ms Azure OpenAI embedding round-trip on repeated queries.
    - **Tier 2 (Semantic Answer & Retrieval Cache)**: Reuses retrieved chunks and generated answers when cosine similarity $\ge 0.92$, achieving **~0.005s – 0.01s** total response times.
    - Automatic fallback to in-memory RAM caching if Redis is offline.
 
-8. **Automated Faithfulness & Hallucination Auditor**:
+9. **Automated Faithfulness & Hallucination Auditor**:
    - Every generated response is audited claim-by-claim against retrieved CV excerpts.
    - Displays a live grounding badge (e.g. `🟢 100% Grounded`) and flags any ungrounded assertions.
 

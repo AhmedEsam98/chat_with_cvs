@@ -37,3 +37,6 @@ SEMANTIC_CACHE_THRESHOLD = float(os.getenv("SEMANTIC_CACHE_THRESHOLD", "0.92")) 
 RERANKER_ENABLED = os.getenv("RERANKER_ENABLED", "true").lower() in ("true", "1", "yes")
 RERANKER_MODEL = os.getenv("RERANKER_MODEL", "ms-marco-TinyBERT-L-2-v2")
 RERANK_TOP_N = int(os.getenv("RERANK_TOP_N", "20"))  # Retrieve top N candidates from search before re-ranking to k
+
+# Query Rewriter (Conversational Context & Query Resolution)
+QUERY_REWRITE_ENABLED = os.getenv("QUERY_REWRITE_ENABLED", "true").lower() in ("true", "1", "yes")
