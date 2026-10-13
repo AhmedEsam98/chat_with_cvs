@@ -182,21 +182,27 @@ chat-with-cvs/
 │
 ├── retrieval/                  # Search & Re-ranking Pipeline
 │   ├── searcher.py             # Two-stage retrieval + query vector caching
-│   └── reranker.py             # FlashRank cross-encoder re-ranking
+│   ├── reranker.py             # FlashRank cross-encoder re-ranking
+│   ├── query_rewriter.py       # Conversational coreference resolution & fast-path
+│   └── router.py               # Question routing (CV_RELATED vs NOT_CV_RELATED)
 │
 ├── generation/                 # LLM Answering & Quality Gates
 │   ├── generator.py            # Streaming response generator with answer cache
 │   ├── prompts.py              # HR system prompts & context formatting
 │   ├── role_matcher.py         # Deterministic job title & taxonomy validation
-│   ├── router.py               # Question routing (CV_RELATED vs NOT_CV_RELATED)
 │   └── evaluator.py            # Hallucination and faithfulness auditor
 │
 ├── data/                       # Sample candidate CVs for testing
 └── tests/                      # Verification and benchmark test suite
     ├── test_extraction.py      # Tests PDF/DOCX section parsing
     ├── test_retrieval.py       # Interactive CLI search test
+    ├── test_router.py          # Question intent classification test
+    ├── test_query_rewriter.py  # Conversational multi-turn rewriter test
     ├── test_semantic_cache.py  # Verifies Redis cosine similarity math
+    ├── test_fast_cache.py      # Sub-10ms exact & semantic cache verification
+    ├── test_repeated_question_pipeline.py # End-to-end repeated turn latency test
     ├── test_reranker.py        # Validates FlashRank scoring
+    ├── test_role_matcher.py    # Validates candidate name vs role filtering
     └── test_hallucination.py   # Tests faithfulness auditor
 ```
 
@@ -215,7 +221,7 @@ chat-with-cvs/
 ### 2. Clone and Setup Environment
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/AhmedEsam98/chat_with_cvs.git
 cd chat-with-cvs
 ```
 
@@ -309,16 +315,25 @@ python tests/test_extraction.py data/Basel_Barakat_CV.pdf
 # 2. Interactive Search & Azure AI Search CLI
 python tests/test_retrieval.py
 
-# 3. Benchmark FlashRank Re-ranker
+# 3. Test Question Intent Router (CV_RELATED vs NOT_CV_RELATED)
+python tests/test_router.py
+
+# 4. Test Conversational Multi-Turn Query Rewriter
+python tests/test_query_rewriter.py
+
+# 5. Benchmark FlashRank Re-ranker
 python tests/test_reranker.py
 
-# 4. Verify Redis Semantic Caching & Cosine Math
+# 6. Verify Redis Semantic Caching & Cosine Math
 python tests/test_semantic_cache.py
 
-# 5. Live Semantic Cache Hit Demo (Sub-10ms Benchmark)
-python tests/demo_semantic_hit.py
+# 7. Sub-10ms Exact & Semantic Answer Cache Verification
+python tests/test_fast_cache.py
 
-# 6. Test Hallucination & Grounding Auditor
+# 8. End-to-End Repeated Turn Latency Benchmark
+python tests/test_repeated_question_pipeline.py
+
+# 9. Test Hallucination & Grounding Auditor
 python tests/test_hallucination.py
 ```
 

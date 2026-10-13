@@ -1,10 +1,7 @@
-"""Test suite for Conversational Query Rewriter."""
+import os
 import sys
+import time
 from pathlib import Path
-from unittest.mock import MagicMock
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
 
 # Ensure UTF-8 output encoding for Windows consoles
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
@@ -12,121 +9,107 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
 if sys.stderr and hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
+# Add project root to sys.path
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
 import config
-from retrieval.query_rewriter import rewrite_query, _has_context_dependencies
+from retrieval.query_rewriter import rewrite_query
 
 
-def test_query_rewriter():
-    print("=" * 70)
-    print("🧪 RUNNING CONVERSATIONAL QUERY REWRITER TEST SUITE")
-    print(f"Query Rewrite Enabled: {config.QUERY_REWRITE_ENABLED}")
-    print("=" * 70)
-
-    # -----------------------------------------------------------------
-    # Test 1: Fast-Path on Empty or Non-Dependent Queries (0ms, 0 API calls)
-    # -----------------------------------------------------------------
-    print("\n[Test 1] Fast-path evaluation without history...")
-    q1 = "Who is the best Flutter developer?"
-    rewritten1, was_rewritten1 = rewrite_query(q1, history=[])
-    assert rewritten1 == q1, f"Expected untouched query, got {rewritten1}"
-    assert not was_rewritten1, "Expected was_rewritten=False"
-    print("  ✅ Empty history bypassed LLM correctly.")
-
-    print("\n[Test 2] Fast-path evaluation on standalone query with greeting history...")
-    greeting_hist = [
-        {"role": "user", "content": "Hello!"},
-        {"role": "assistant", "content": "Hello! How can I help you with the candidates?"},
+def test_coreference_resolution():
+    print("\n--- Test 1: Conversational Coreference Resolution ---")
+    history = [
+        {"role": "user", "content": "Who is Abdelrahman Karawia?"},
+        {
+            "role": "assistant",
+            "content": "Abdelrahman Karawia is a Flutter Developer specializing in cross-platform mobile apps with Bloc and Clean Architecture.",
+        },
     ]
-    q2 = "List all candidates with machine learning and deep learning experience."
-    rewritten2, was_rewritten2 = rewrite_query(q2, history=greeting_hist)
-    assert rewritten2 == q2, f"Expected untouched query, got {rewritten2}"
-    assert not was_rewritten2, "Expected was_rewritten=False"
-    print("  ✅ Standalone query with greeting history bypassed LLM correctly.")
+    follow_up = "What are his main projects?"
+    print(f"Prior Turn: User asked about Abdelrahman Karawia")
+    print(f"Follow-up:  \"{follow_up}\"")
 
-    # -----------------------------------------------------------------
-    # Test 3: Context Dependency Detection
-    # -----------------------------------------------------------------
-    print("\n[Test 3] Testing context dependency heuristics...")
-    assert _has_context_dependencies("What are his skills?", greeting_hist) is True
-    assert _has_context_dependencies("Where did she study?", greeting_hist) is True
-    assert _has_context_dependencies("What about Flutter?", greeting_hist) is True
-    assert _has_context_dependencies("And certifications?", greeting_hist) is True
-    assert _has_context_dependencies("Compare him with Ahmed", greeting_hist) is True
-    assert _has_context_dependencies("Who has experience in Docker?", greeting_hist) is False
-    print("  ✅ Coreference heuristic detection passed.")
+    t0 = time.perf_counter()
+    rewritten = rewrite_query(follow_up, history=history)
+    t1 = time.perf_counter()
 
-    # -----------------------------------------------------------------
-    # Test 4: Mocked LLM Coreference Resolution
-    # -----------------------------------------------------------------
-    print("\n[Test 4] Mocked LLM coreference resolution...")
-    mock_history = [
-        {"role": "user", "content": "Who is Akram?"},
-        {"role": "assistant", "content": "Akram is an AI Developer with 5 years experience in Python and NLP."},
+    print(f"Rewritten:  \"{rewritten}\"")
+    print(f"Latency:    {t1 - t0:.4f}s")
+    assert "abdelrahman" in rewritten.lower() or "karawia" in rewritten.lower(), (
+        f"Expected candidate name in rewritten query, got: {rewritten}"
+    )
+    print("✅ Coreference successfully resolved!")
+
+
+def test_synonym_expansion():
+    print("\n--- Test 2: Domain & Technical Keyword Expansion ---")
+    query = "mobile developer"
+    print(f"Input:     \"{query}\"")
+
+    t0 = time.perf_counter()
+    rewritten = rewrite_query(query, history=[])
+    t1 = time.perf_counter()
+
+    print(f"Rewritten: \"{rewritten}\"")
+    print(f"Latency:   {t1 - t0:.4f}s")
+    assert len(rewritten) > len(query), "Expected expanded query for generic role"
+    print("✅ Query expansion successfully applied!")
+
+
+def test_cache_speedup():
+    print("\n--- Test 3: Query Rewriter Cache Latency ---")
+    history = [
+        {"role": "user", "content": "Who knows Python?"},
+        {"role": "assistant", "content": "Mohamed and Sarah have Python experience."},
     ]
-    follow_up_q = "What are his main projects?"
+    query = "Where did he study?"
 
-    mock_client = MagicMock()
-    mock_completion = MagicMock()
-    mock_choice = MagicMock()
-    mock_choice.message.content = "What are Akram's main projects?"
-    mock_completion.choices = [mock_choice]
-    mock_client.chat.completions.create.return_value = mock_completion
+    # First call (cold / LLM)
+    t0 = time.perf_counter()
+    res1 = rewrite_query(query, history=history)
+    cold_time = time.perf_counter() - t0
 
-    rewritten4, was_rewritten4 = rewrite_query(follow_up_q, history=mock_history, client=mock_client)
-    assert was_rewritten4 is True, "Expected was_rewritten=True"
-    assert rewritten4 == "What are Akram's main projects?", f"Unexpected output: {rewritten4}"
-    print(f"  • Input: \"{follow_up_q}\"")
-    print(f"  • Rewritten: \"{rewritten4}\"")
-    print("  ✅ Mocked coreference resolution passed.")
+    # Second call (warm / cached)
+    t0 = time.perf_counter()
+    res2 = rewrite_query(query, history=history)
+    warm_time = time.perf_counter() - t0
 
-    # -----------------------------------------------------------------
-    # Test 5: Fallback on API Error
-    # -----------------------------------------------------------------
-    print("\n[Test 5] Error resilience & graceful fallback...")
-    error_client = MagicMock()
-    error_client.chat.completions.create.side_effect = RuntimeError("OpenAI rate limit or network error")
+    print(f"Cold Rewrite Latency: {cold_time:.4f}s -> \"{res1}\"")
+    print(f"Warm Rewrite Latency: {warm_time:.6f}s -> \"{res2}\"")
 
-    fallback_res, fallback_flag = rewrite_query("What about his salary?", history=mock_history, client=error_client)
-    assert fallback_res == "What about his salary?", "Expected fallback to original query on error"
-    assert fallback_flag is False, "Expected was_rewritten=False on error"
-    print("  ✅ Gracefully falls back to original query on exception.")
+    assert res1 == res2, "Cached rewritten query should match cold result"
+    assert warm_time < 0.05, f"Cached query should be instantaneous (<50ms), took {warm_time}s"
+    print(f"✅ Cache speedup verified! ({cold_time / max(warm_time, 0.000001):.1f}x faster)")
 
-    # -----------------------------------------------------------------
-    # Test 6: Feature Toggle Disabled
-    # -----------------------------------------------------------------
-    print("\n[Test 6] Feature toggle disabled behavior...")
-    config.QUERY_REWRITE_ENABLED = False
-    t_res, t_flag = rewrite_query("What are his skills?", history=mock_history, client=mock_client)
-    assert t_res == "What are his skills?", "Expected untouched when toggle is False"
-    assert t_flag is False
-    config.QUERY_REWRITE_ENABLED = True
-    print("  ✅ Feature toggle respected.")
 
-    # -----------------------------------------------------------------
-    # Test 7: Live Azure OpenAI Query Rewriter (Integration)
-    # -----------------------------------------------------------------
-    print("\n[Test 7] Live Azure OpenAI Query Rewriter Test...")
+def test_disabled_bypass():
+    print("\n--- Test 4: Disable Config Bypass ---")
+    original_setting = config.QUERY_REWRITER_ENABLED
     try:
-        live_history = [
-            {"role": "user", "content": "Who is Akram?"},
-            {
-                "role": "assistant",
-                "content": "Akram is an AI Developer with experience in machine learning, PyTorch, and NLP.",
-            },
-        ]
-        live_q = "What are his technical skills?"
-        live_rewritten, live_flag = rewrite_query(live_q, history=live_history)
-        print(f"  • Original Follow-Up: \"{live_q}\"")
-        print(f"  • Live Rewritten Query: \"{live_rewritten}\" (Was Rewritten: {live_flag})")
-        assert "Akram" in live_rewritten or "akram" in live_rewritten.lower(), "Expected candidate name in rewritten query"
-        print("  ✅ Live conversational rewrite successfully resolved pronouns to 'Akram'!")
-    except Exception as exc:
-        print(f"  ⚠️ Live API test note (skipped if offline): {exc}")
-
-    print("\n" + "=" * 70)
-    print("🎉 ALL CONVERSATIONAL QUERY REWRITER TESTS PASSED!")
-    print("=" * 70)
+        config.QUERY_REWRITER_ENABLED = False
+        raw = "What are his projects?"
+        res = rewrite_query(raw, history=[{"role": "user", "content": "Tell me about John."}])
+        assert res == raw, "Should return raw query when disabled"
+        print(f"✅ Bypassed cleanly when disabled: \"{res}\"")
+    finally:
+        config.QUERY_REWRITER_ENABLED = original_setting
 
 
 if __name__ == "__main__":
-    test_query_rewriter()
+    print("=" * 60)
+    print("Running Query Rewriter Test Suite")
+    print("=" * 60)
+    try:
+        test_coreference_resolution()
+        test_synonym_expansion()
+        test_cache_speedup()
+        test_disabled_bypass()
+        print("\n" + "=" * 60)
+        print("🎉 ALL QUERY REWRITER TESTS PASSED!")
+        print("=" * 60)
+    except Exception as e:
+        print(f"\n❌ Test failed: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)

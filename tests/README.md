@@ -45,39 +45,3 @@ python tests/test_retrieval.py "Python backend Django" -k 5 --save
 python tests/test_retrieval.py
 ```
 *(Prompts for queries interactively so you can test multiple queries quickly)*
-
----
-
-## 3. Test FlashRank Re-ranker
-
-Benchmark and verify FlashRank's cross-encoder re-ranking scores and ordering:
-
-```bash
-python tests/test_reranker.py
-```
-
----
-
-## 4. Test Redis Semantic Cache & Vector Similarity
-
-Verify that Redis cache operations, cosine similarity calculations, and threshold evaluations work correctly:
-
-```bash
-python tests/test_semantic_cache.py
-```
-
-### Quick Semantic Cache Hit Demo:
-```bash
-python tests/demo_semantic_hit.py
-```
-
----
-
-## 5. Test Hallucination & Faithfulness Auditor
-
-Verify the claim-level grounding auditor on grounded vs fabricated candidate statements:
-
-```bash
-python tests/test_hallucination.py
-```
-

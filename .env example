@@ -15,3 +15,7 @@ AZURE_STORAGE_CONTAINER=cvs
 REDIS_URL=redis://localhost:6379/0
 REDIS_CACHE_TTL=3600
 REDIS_ENABLED=true
+ 
+# Query Rewriter & Expansion (Optional)
+QUERY_REWRITER_ENABLED=true
+QUERY_EXPANSION_ENABLED=true

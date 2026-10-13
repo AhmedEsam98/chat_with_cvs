@@ -71,45 +71,144 @@ ROLE_TAXONOMY: dict[str, list[str]] = {
         "graphic designer",
         "ui/ux designer",
     ],
+    "scrum master": [
+        "scrum master",
+        "agile coach",
+        "project manager",
+    ],
+    "devops engineer": [
+        "devops engineer",
+        "site reliability engineer",
+        "sre",
+        "cloud engineer",
+    ],
+    "product manager": [
+        "product manager",
+        "product owner",
+    ],
+    "data scientist": [
+        "data scientist",
+        "machine learning engineer",
+        "data analyst",
+    ],
+    "data analyst": [
+        "data analyst",
+        "business intelligence analyst",
+        "bi analyst",
+    ],
+    "it supervisor": [
+        "it supervisor",
+        "it support",
+        "network administrator",
+        "systems administrator",
+    ],
+    "network administrator": [
+        "network administrator",
+        "it supervisor",
+        "it support",
+        "network engineer",
+    ],
 }
 
-# Recognized role nouns that confirm a target noun phrase is an occupational title
-ROLE_NOUNS: set[str] = {
-    "developer", "dev", "engineer", "designer", "architect", "manager", "lead", "leader",
-    "specialist", "analyst", "consultant", "administrator", "admin", "scientist",
-    "officer", "intern", "trainee", "programmer", "coder", "tester", "qa",
-    "director", "coordinator", "technician", "expert", "executive", "assistant"
-}
-
-# Explicit regexes where the user explicitly asks for a position / role
+# Explicit position query patterns: user explicitly used position/role/job/works as keywords
 EXPLICIT_POSITION_PATTERNS = [
-    re.compile(r"^who\s+(?:holds|has|works\s+in)\s+(?:the\s+)?(?:position|role|job)\s+of\s+(.+)$", re.IGNORECASE),
-    re.compile(r"^who\s+works\s+as\s+(?:an?\s+)?(.+?)(?:\s+position|\s+role|\s+job)?$", re.IGNORECASE),
-    re.compile(r"^is\s+there\s+(?:an?\s+)?(.+?)(?:\s+position|\s+role|\s+job)$", re.IGNORECASE),
-    re.compile(r"^(?:which\s+candidate|candidates)\s+(?:holds?|has|have)\s+(?:the\s+)?(?:position|role|job)\s+of\s+(.+)$", re.IGNORECASE),
+    # "who holds/has the position of ...", "who is in the position/role of ..."
+    re.compile(r"^who\s+(?:is|are|has|holds)\s+(?:in\s+)?(?:the\s+)?(?:position|role|job)\s+of\s+(.+?)[?.!]*$", re.IGNORECASE),
+    # "who holds/has the ... position/role/job"
+    re.compile(r"^who\s+(?:holds|has)\s+(?:the\s+)?(.+?)\s+(?:position|role|job)[?.!]*$", re.IGNORECASE),
+    # "who works as an? ..."
+    re.compile(r"^who\s+works\s+as\s+(?:an?\s+)?(.+?)(?:\s+(?:position|role|job))?[?.!]*$", re.IGNORECASE),
+    # "is there a/an ... position/role/job"
+    re.compile(r"^is\s+there\s+(?:an?\s+)?(.+?)\s+(?:position|role|job)[?.!]*$", re.IGNORECASE),
+    # "which candidate holds the position of ...", "which candidate has the ... position/role/job"
+    re.compile(r"^(?:which\s+candidate|candidates)\s+(?:is|are|has|have|holds?)\s+(?:the\s+)?(?:position|role|job)\s+of\s+(.+?)[?.!]*$", re.IGNORECASE),
+    re.compile(r"^(?:which\s+candidate|candidates)\s+(?:is|are|has|have|holds?)\s+(?:the\s+)?(.+?)\s+(?:position|role|job)[?.!]*$", re.IGNORECASE),
+    # "do we have a/an ... position/role/job"
+    re.compile(r"^(?:do\s+we\s+have|are\s+there)\s+(?:an?\s+)?(.+?)\s+(?:position|role|job)[?.!]*$", re.IGNORECASE),
 ]
 
-# Implicit regexes that require a role article ("a", "an", "the") or candidate reference
+# Implicit position query patterns: user asks "who is the ...", "is there a ...", "which candidate is the ...", etc.
+# These MUST be validated against recognized roles (not people, names, or general questions).
 IMPLICIT_POSITION_PATTERNS = [
-    re.compile(r"^who\s+(?:is|are)\s+(?:an?|the)\s+(.+?)(?:\s+position|\s+role|\s+job)?$", re.IGNORECASE),
-    re.compile(r"^is\s+there\s+(?:an?)\s+(.+?)$", re.IGNORECASE),
-    re.compile(r"^(?:which\s+candidate|candidates)\s+(?:is|are)\s+(?:an?|the)\s+(.+?)$", re.IGNORECASE),
+    re.compile(r"^who\s+(?:is|are)\s+(?:the|an?)\s+(.+?)[?.!]*$", re.IGNORECASE),
+    re.compile(r"^who\s+(?:is|are)\s+(.+?)[?.!]*$", re.IGNORECASE),
+    re.compile(r"^is\s+there\s+(?:an?)\s+(.+?)[?.!]*$", re.IGNORECASE),
+    re.compile(r"^(?:which\s+candidate|candidates)\s+(?:is|are)\s+(?:the|an?)\s+(.+?)[?.!]*$", re.IGNORECASE),
+    re.compile(r"^(?:do\s+we\s+have|are\s+there)\s+(?:an?)\s+(.+?)[?.!]*$", re.IGNORECASE),
 ]
 
 # Patterns that indicate a skill/technology or general question instead of a position
 SKILL_INDICATORS = {
     "know", "knows", "experience", "experienced", "skills", "skill", "worked with",
     "using", "used", "study", "studied", "graduated", "education", "project", "projects",
-    "background", "compare", "summary", "summarize", "tell me about"
+    "background", "compare", "summary", "summarize", "tell me about", "details about",
+    "information about", "highest gpa", "gpa", "degree", "university", "college",
+    "school", "certification", "certifications", "courses", "license",
+}
+
+ROLE_NOUNS = {
+    "developer", "dev", "engineer", "designer", "manager", "architect",
+    "lead", "specialist", "analyst", "administrator", "admin", "consultant",
+    "officer", "coordinator", "supervisor", "intern", "trainee", "scientist",
+    "programmer", "tester", "qa", "director", "recruiter", "technician",
+    "assistant", "auditor", "instructor", "lecturer", "professor", "expert",
+    "master",
+}
+
+TECH_TOOLS = {
+    "python", "docker", "flutter", "dart", "react", "sql", "git", "rag",
+    "langchain", "aws", "azure", "linux", "c++", "java", "node.js", "nodejs",
+    "fastapi", "flask", "django", "mongodb", "postgresql", "figma",
+}
+
+NON_ROLE_WORDS = {
+    "candidate", "candidates", "person", "people", "someone", "anyone",
+    "best", "top", "qualified", "eligible", "he", "she", "they", "him", "her",
+    "cv", "cvs", "resume", "resumes", "profile", "profiles",
 }
 
 
 def _clean_role(raw: str) -> str:
     """Normalize extracted role string."""
     r = raw.strip().lower()
+    r = re.sub(r"[?!.,;]+$", "", r)
     r = re.sub(r"^(?:an?|the)\s+", "", r)
     r = re.sub(r"\s+(?:position|role|job)$", "", r)
     return r.strip()
+
+
+def _extract_candidate_name_from_filename(filename: str) -> str:
+    base = filename.rsplit(".", 1)[0]
+    base = re.sub(r"[\(\)]", " ", base)
+    base = re.sub(r"([a-z])([A-Z])", r"\1 \2", base)
+    base = re.sub(r"[-_\d]+", " ", base)
+    base = re.sub(
+        r"\b(?:CV|Resume|FlowCV|Flow|Graphic|Designer|Flutter|Developer|Backend|Frontend|AI|Engineer)\b",
+        " ", base, flags=re.IGNORECASE)
+    base = re.sub(r"\s+", " ", base).strip()
+    return base
+
+
+def extract_candidate_names(hits: list[dict]) -> set[str]:
+    """Collect candidate names and name tokens from retrieved chunks and filenames."""
+    names: set[str] = set()
+    for h in hits:
+        cand_name = h.get("candidate_name")
+        if cand_name:
+            cn_lower = cand_name.strip().lower()
+            names.add(cn_lower)
+            for token in re.findall(r"\b[a-zA-Z]{3,}\b", cn_lower):
+                names.add(token)
+
+        cv_name = h.get("cv_name")
+        if cv_name:
+            fn_clean = _extract_candidate_name_from_filename(cv_name).lower()
+            if fn_clean:
+                names.add(fn_clean)
+                for token in re.findall(r"\b[a-zA-Z]{3,}\b", fn_clean):
+                    names.add(token)
+
+    return names
 
 
 def extract_candidate_titles(hits: list[dict]) -> dict[str, set[str]]:
@@ -125,6 +224,10 @@ def extract_candidate_titles(hits: list[dict]) -> dict[str, set[str]]:
         re.compile(r"(?:Backend|Node\.js|Python)\s+Developer", re.IGNORECASE),
         re.compile(r"Frontend Developer", re.IGNORECASE),
         re.compile(r"Software Engineer", re.IGNORECASE),
+        re.compile(r"IT\s+Supervisor", re.IGNORECASE),
+        re.compile(r"Network\s+Admin(?:istrator)?", re.IGNORECASE),
+        re.compile(r"(?:UI\s*/\s*UX|Product)\s+Designer", re.IGNORECASE),
+        re.compile(r"(?:Data|Machine Learning)\s+Scientist", re.IGNORECASE),
     ]
 
     for h in hits:
@@ -132,6 +235,10 @@ def extract_candidate_titles(hits: list[dict]) -> dict[str, set[str]]:
         content = h.get("content", "")
         if cv_name not in candidate_titles:
             candidate_titles[cv_name] = set()
+
+        for t in h.get("job_titles") or []:
+            if t:
+                candidate_titles[cv_name].add(t.strip())
 
         for pat in title_patterns:
             for match in pat.finditer(content):
@@ -142,76 +249,96 @@ def extract_candidate_titles(hits: list[dict]) -> dict[str, set[str]]:
     return candidate_titles
 
 
+def is_recognized_role(role_candidate: str, hits: list[dict]) -> bool:
+    """Determine whether a candidate string represents an actual recognizable job title/role."""
+    cleaned = _clean_role(role_candidate)
+    if not cleaned:
+        return False
+
+    if cleaned in TECH_TOOLS:
+        return False
+
+    # Check taxonomy keys and values
+    if cleaned in ROLE_TAXONOMY:
+        return True
+    for tax_key, tax_vals in ROLE_TAXONOMY.items():
+        if cleaned == tax_key or cleaned in tax_vals:
+            return True
+
+    # Check if any role noun is present in the target words
+    words = set(re.findall(r"\b[a-z]+\b", cleaned))
+    if words & ROLE_NOUNS:
+        return True
+
+    # Check against extracted titles from CV hits
+    cand_titles = extract_candidate_titles(hits)
+    for titles in cand_titles.values():
+        for t in titles:
+            t_lower = t.lower()
+            if cleaned == t_lower or cleaned in t_lower:
+                return True
+
+    return False
+
+
 def validate_position_query(question: str, hits: list[dict]) -> PositionValidationResult:
     """Validate whether the user's query is asking for a position and whether any candidate holds it."""
     clean_q = question.strip().lower()
+    clean_q = re.sub(r"[?!.,;]+$", "", clean_q).strip()
 
-    # If question contains skill/action verbs like "knows Python" or "experience with RAG", not a strict position query
+    # 1. Skill/Action indicators: questions asking about skills, education, projects, etc.
     for ind in SKILL_INDICATORS:
         if f" {ind} " in f" {clean_q} " or clean_q.startswith(f"{ind} "):
             return PositionValidationResult(is_position_query=False)
 
-    # Collect candidate names from hits to avoid mistaking candidates for job titles
-    candidate_name_tokens: set[str] = set()
-    for h in hits:
-        raw_name = (h.get("candidate_name") or h.get("cv_name") or "").strip().lower()
-        if raw_name:
-            cleaned_name = re.sub(r"\.(?:pdf|docx|txt)$", "", raw_name, flags=re.IGNORECASE)
-            cleaned_name = re.sub(r"[\(\)]", "", cleaned_name).strip()
-            candidate_name_tokens.add(cleaned_name)
-            for part in re.split(r"[\s_\-]+", cleaned_name):
-                part = part.strip()
-                if len(part) >= 2 and part not in ROLE_NOUNS and part not in {"cv", "resume"}:
-                    candidate_name_tokens.add(part)
+    # 2. Extract candidate names to prevent treating candidate name questions (e.g. "who is akram") as position queries
+    candidate_names = extract_candidate_names(hits)
 
     target_role = None
-    is_explicit_position = False
+    is_explicit = False
 
-    # 1. Check explicit position patterns first
+    # Check explicit patterns first
     for pattern in EXPLICIT_POSITION_PATTERNS:
         m = pattern.match(clean_q)
         if m:
-            cand = _clean_role(m.group(1))
-            if cand and len(cand.split()) <= 6:
-                target_role = cand
-                is_explicit_position = True
+            extracted = _clean_role(m.group(1))
+            if extracted and len(extracted.split()) <= 6:
+                target_role = extracted
+                is_explicit = True
                 break
 
-    # 2. Check implicit position patterns
+    # If not explicit, check implicit patterns
     if not target_role:
         for pattern in IMPLICIT_POSITION_PATTERNS:
             m = pattern.match(clean_q)
             if m:
-                cand = _clean_role(m.group(1))
-                if cand and len(cand.split()) <= 6:
-                    target_role = cand
+                extracted = _clean_role(m.group(1))
+                if extracted and len(extracted.split()) <= 6:
+                    target_role = extracted
                     break
 
     if not target_role:
         return PositionValidationResult(is_position_query=False)
 
-    # If target matches a candidate's name, it's a person inquiry, NOT a position query
-    if target_role in candidate_name_tokens:
+    # 3. Reject if target matches a known candidate name (e.g. "akram", "abdelrahman", "sherif")
+    target_words = set(re.findall(r"\b[a-z]{3,}\b", target_role))
+    if target_role in candidate_names or (target_words and target_words.issubset(candidate_names)):
         return PositionValidationResult(is_position_query=False)
 
-    # If the extracted target is clearly a skill/tool rather than a role (e.g. "python", "docker", "flutter" alone)
-    tech_tools = {"python", "docker", "flutter", "dart", "react", "sql", "git", "rag", "langchain"}
-    if target_role in tech_tools:
+    # 4. Filter out pure tech tools and non-role generic query terms
+    if target_role in TECH_TOOLS:
         return PositionValidationResult(is_position_query=False)
 
-    # For implicit queries (e.g. "who is the X"), confirm target actually looks like an occupational role
-    if not is_explicit_position:
-        words = set(target_role.split())
-        has_role_noun = bool(words.intersection(ROLE_NOUNS))
-        in_taxonomy = target_role in ROLE_TAXONOMY
-        if not (has_role_noun or in_taxonomy):
-            # Not an occupational position query (likely asking about a person, comparative superlative, etc.)
-            return PositionValidationResult(is_position_query=False)
+    if target_words and target_words.issubset(NON_ROLE_WORDS):
+        return PositionValidationResult(is_position_query=False)
 
-    # Extract all candidate titles from retrieved chunks
+    # 5. For implicit queries (or even explicit without role nouns), verify target looks like a valid role
+    if not is_explicit and not is_recognized_role(target_role, hits):
+        return PositionValidationResult(is_position_query=False)
+
+    # 6. Extract candidate titles from retrieved chunks and map against target_role
     candidates_map = extract_candidate_titles(hits)
 
-    # Find matching candidates
     matching_candidates: list[dict] = []
     related_titles_found: set[str] = set()
 
@@ -225,18 +352,17 @@ def validate_position_query(question: str, hits: list[dict]) -> PositionValidati
                 matching_candidates.append({"cv_name": cv_name, "title": title})
                 continue
 
-            # 2. Taxonomy mapping: Does target_role map to this title?
+            # 2. Taxonomy mapping
             if target_role in ROLE_TAXONOMY:
                 acceptable_subtitles = ROLE_TAXONOMY[target_role]
                 if any(sub in t_lower for sub in acceptable_subtitles):
                     matching_candidates.append({"cv_name": cv_name, "title": title})
                     continue
 
-            # 3. Substring/hierarchy matching:
-            # If target role words are all contained in candidate's title without conflicting modifiers
-            target_words = set(target_role.split())
+            # 3. Substring/hierarchy matching
+            target_words_set = set(target_role.split())
             title_words = set(t_lower.replace("-", " ").replace("–", " ").split())
-            if target_words.issubset(title_words):
+            if target_words_set.issubset(title_words):
                 matching_candidates.append({"cv_name": cv_name, "title": title})
 
     if matching_candidates:
@@ -247,7 +373,7 @@ def validate_position_query(question: str, hits: list[dict]) -> PositionValidati
             matching_candidates=matching_candidates,
         )
 
-    # If no candidate holds this specific position, craft an accurate deterministic rejection
+    # Deterministic rejection for genuine position queries with 0 matches
     target_display = target_role.title()
     related_bullets = ""
     if related_titles_found:
@@ -269,3 +395,4 @@ def validate_position_query(question: str, hits: list[dict]) -> PositionValidati
         has_matching_candidates=False,
         rejection_message=rejection_msg,
     )
+

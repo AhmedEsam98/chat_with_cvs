@@ -1,43 +1,33 @@
-# Environment & Secrets (NEVER COMMIT)
+# Environment variables and secrets
 .env
 .env.*
 !.env example
 !.env.example
 
-# Excluded Media per configuration
-pipeline.png
-
-# Python Bytecode & Cache
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
-.pytest_cache/
+.Python
+build/
+dist/
+*.egg-info/
 
-# Test Outputs & Generated Reports
-tests/output/
-
-# Virtual Environments
+# Virtual environments
 venv/
-.venv/
 env/
+.venv/
 ENV/
 
-# IDE & Editor Settings
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS Artifacts
-.DS_Store
-Thumbs.db
-
-# Agent Artifacts
-.agents/
-
-# Logs
+# Testing & logs
+.pytest_cache/
+tests/output/
 *.log
 
-# Streamlit local config
-.streamlit/
+# IDE & Editor
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+.agents/

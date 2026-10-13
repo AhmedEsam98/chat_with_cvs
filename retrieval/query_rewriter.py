@@ -1,178 +1,153 @@
-"""Conversational Query Rewriter for Multi-Turn CV Search.
-
-Resolves coreferences (pronouns like "he", "she", "his", "their"), follow-up questions,
-and elliptical queries into standalone, search-optimized queries before retrieval.
-"""
 import logging
 import re
-from typing import Optional
+from typing import Any, Optional
 
 import config
 from cache_manager import (
-    cache_get_json,
-    cache_set_json,
+    get_cached_rewrite,
     hash_key,
-    is_redis_available,
     normalize_query_key,
+    set_cached_rewrite,
 )
 from clients import get_openai_client
 
 logger = logging.getLogger(__name__)
 
-# System instructions for conversational reformulation
-REWRITER_SYSTEM_PROMPT = """You are a conversational query reformulation engine for an HR Resume/CV search system.
-Your job is to reformulate the user's latest question into a single, standalone search query that can be understood in complete isolation without the conversation history.
+REWRITE_SYSTEM_PROMPT = """You are an expert search query reformulation engine for an HR and CV/Resume Retrieval-Augmented Generation (RAG) system.
 
-Rules:
-1. Coreference Resolution: Replace pronouns (e.g., "he", "him", "his", "she", "her", "they", "their", "this candidate", "both of them") with the actual candidate name(s) or job titles established in the chat history.
-2. Follow-Up Expansion: If the user asks an elliptical or shorthand question (e.g. "What about Flutter?", "Where did he study?", "And certifications?"), expand it into a complete search query (e.g., "Does Akram have Flutter experience?").
-3. Preserve Intent: Do NOT attempt to answer the question. Do NOT hallucinate candidate names or skills that were never mentioned in the history or question.
-4. Search Optimization: Strip away conversational filler (e.g. "Can you tell me", "I want to know", "Also,"). Keep technical terms, skill keywords, and candidate names intact.
-5. If Already Standalone: If the latest question is already completely self-contained and does not rely on prior context, return the original question verbatim.
-6. Format: Output ONLY the rewritten search query. Do NOT add quotes, introductory phrases, or explanations."""
+Your task is to transform the user's latest question into a single, standalone, optimized search query for hybrid search (BM25 keyword + semantic vector search) over candidate CVs.
 
-# Pronouns and conversational follow-up triggers
-COREFERENCE_PATTERNS = [
-    r"\b(?:he|him|his|she|her|hers|they|them|their|theirs)\b",
-    r"\b(?:this|that|these|those)\s+(?:candidate|person|applicant|one|profile|cv|resume)\b",
-    r"\b(?:what\s+about|how\s+about|and\s+what\s+about|tell\s+me\s+more)\b",
-    r"\b(?:both|either|neither|the\s+same|another|other|compare\s+(?:him|her|them|with))\b",
-]
-COREFERENCE_REGEX = re.compile("|".join(COREFERENCE_PATTERNS), re.IGNORECASE)
-
-MAX_HISTORY_MESSAGES = 6
+Guidelines:
+1. Coreference & Context Resolution:
+   - If the conversation history references specific candidates, roles, projects, or education, replace all pronouns (he, she, they, him, her, it, his, their) and indirect references ("the candidate", "the previous person", "the Flutter dev") with their explicit names or positions.
+2. Self-Contained:
+   - The rewritten query must make complete sense on its own without requiring any prior context.
+3. Domain Keywords & Expansion:
+   - When searching for technical roles, skills, or experience, include closely related technical keywords or synonyms that commonly appear on resumes (e.g., "mobile developer" -> "mobile developer Flutter Dart Android iOS", "backend" -> "backend developer Python Node.js APIs").
+4. Maintain Strict Intent:
+   - Do NOT answer the question.
+   - Do NOT assume candidate qualifications or fabricate details not present in the chat or question.
+   - Keep it concise (1-2 sentences maximum).
+5. Output format:
+   - Return ONLY the rewritten search query text. No explanations, no markdown quotes, no conversational filler.
+"""
 
 
-def _has_context_dependencies(query: str, history: list[dict]) -> bool:
-    """Heuristic check: does the query likely depend on prior conversation context?"""
-    if not history or len(history) == 0:
-        return False
+def _build_history_summary(history: list[dict], max_turns: int = 4) -> str:
+    """Format recent conversation turns into a compact summary for the rewriter."""
+    if not history:
+        return ""
+    recent = history[-max_turns:]
+    lines = []
+    for m in recent:
+        role = "User" if m.get("role") == "user" else "Assistant"
+        content = m.get("content", "").strip()
+        # Truncate lengthy assistant replies to keep prompt small and fast
+        if role == "Assistant" and len(content) > 300:
+            content = content[:300] + "..."
+        lines.append(f"{role}: {content}")
+    return "\n".join(lines)
 
-    clean_q = query.strip()
-    words = clean_q.split()
 
-    # Very short elliptical follow-ups (e.g., "Flutter?", "His skills?", "What about salary?")
-    if len(words) <= 3 and any(ch in clean_q for ch in ["?", "about", "and", "his", "her"]):
+def _is_context_dependent(query: str) -> bool:
+    """Check if query contains pronouns or conversational follow-up references."""
+    q_lower = query.lower()
+    words = set(re.findall(r"\b[a-z']+\b", q_lower))
+    pronouns = {"he", "she", "they", "him", "her", "his", "their", "them", "himself", "herself"}
+    if words & pronouns:
         return True
-
-    # Contains explicit coreference pronouns or follow-up markers
-    if COREFERENCE_REGEX.search(clean_q):
-        return True
-
-    # Starts with conversational connectors
-    if re.match(r"^(?:and|also|what\s+about|how\s+about|does\s+he|does\s+she|is\s+he|is\s+she)\b", clean_q, re.IGNORECASE):
-        return True
-
-    return False
-
-
-def _format_history(history: list[dict]) -> str:
-    """Format recent user and assistant dialogue turns into a concise transcript."""
-    recent = history[-MAX_HISTORY_MESSAGES:]
-    formatted_lines = []
-    for msg in recent:
-        role = msg.get("role", "")
-        content = (msg.get("content") or "").strip()
-        if not content:
-            continue
-        # Truncate very long assistant replies to keep prompt focused
-        if role == "assistant" and len(content) > 300:
-            content = content[:300].rsplit(" ", 1)[0] + "..."
-        if role in ("user", "assistant"):
-            label = "User" if role == "user" else "Assistant"
-            formatted_lines.append(f"{label}: {content}")
-    return "\n".join(formatted_lines)
+    followup_phrases = (
+        "the candidate", "this candidate", "that candidate", "the previous",
+        "previous candidate", "tell me more", "what about", "what else",
+        "more details", "and him", "and her", "both", "either",
+    )
+    return any(p in q_lower for p in followup_phrases)
 
 
 def rewrite_query(
     query: str,
     history: Optional[list[dict]] = None,
-    client=None,
-) -> tuple[str, bool]:
-    """Reformulate a conversational question into a standalone search query.
+    client: Optional[Any] = None,
+    force_expansion: bool = False,
+) -> str:
+    """Rewrite and optimize a user query for CV hybrid retrieval.
 
-    Args:
-        query: The user's latest raw question.
-        history: The conversation message history list.
-        client: Optional Azure OpenAI client override (useful for testing/mocking).
-
-    Returns:
-        tuple[str, bool]: (effective_search_query, was_rewritten)
+    1. Fast paths: returns original query if rewriting is disabled or query is empty.
+    2. Conversational resolution: resolves pronouns/references using conversation history.
+    3. Query expansion: enriches domain/technical terms for hybrid search.
+    4. Caching: caches rewritten queries in Redis/memory to ensure sub-millisecond repeated queries.
     """
-    clean_q = query.strip()
-    if not clean_q:
-        return "", False
+    if not query or not query.strip():
+        return ""
 
-    # 1. Feature Toggle Check
-    if not getattr(config, "QUERY_REWRITE_ENABLED", True):
-        return clean_q, False
+    raw_query = query.strip()
 
-    # 2. Fast-Path: If no history or query is clearly standalone, skip LLM (0ms, 0 cost)
-    if not history or not _has_context_dependencies(clean_q, history):
-        return clean_q, False
+    # Check if rewriter is enabled globally
+    if not getattr(config, "QUERY_REWRITER_ENABLED", True):
+        return raw_query
 
-    formatted_history = _format_history(history)
-    if not formatted_history:
-        return clean_q, False
+    has_history = bool(history and len(history) > 0)
+    expansion_enabled = getattr(config, "QUERY_EXPANSION_ENABLED", True) or force_expansion
 
-    # 3. Redis Cache Check (0ms for repeated follow-up questions)
-    history_hash = hash_key(formatted_history)
-    cache_key = f"cv:rewrite:{normalize_query_key(clean_q)}:{history_hash}"
-    if is_redis_available():
-        cached = cache_get_json(cache_key)
-        if cached and isinstance(cached, dict) and "rewritten" in cached:
-            rewritten = cached["rewritten"]
-            was_rewritten = cached.get("was_rewritten", True)
-            logger.info("Semantic Query Rewriter Cache Hit: '%s' -> '%s'", clean_q, rewritten)
-            return rewritten, was_rewritten
+    # If no history and expansion is disabled, fast-path return without LLM call
+    if not has_history and not expansion_enabled:
+        return raw_query
 
-    # 4. Azure OpenAI Query Reformulation
+    history_summary = _build_history_summary(history or [])
+    norm_q = normalize_query_key(raw_query)
+    is_dependent = _is_context_dependent(raw_query)
+
+    # ── Check Standalone Cache First for Non-Context Queries ──
+    standalone_key = f"cv:rewrite:standalone:{norm_q}"
+    if not is_dependent:
+        cached_standalone = get_cached_rewrite(standalone_key)
+        if cached_standalone:
+            return cached_standalone
+
+    # ── Check Conversational Cache ──
+    cache_key = f"cv:rewrite:{hash_key(norm_q, history_summary)}"
+    cached_val = get_cached_rewrite(cache_key)
+    if cached_val:
+        return cached_val
+
+    # ── LLM Invocation ──
+    prompt_lines = []
+    if history_summary and is_dependent:
+        prompt_lines.append(f"Conversation History:\n{history_summary}\n")
+    prompt_lines.append(f"Current Question to Reformulate: {raw_query}")
+    prompt_lines.append("\nRewritten Standalone Search Query:")
+
+    user_prompt = "\n".join(prompt_lines)
+
     try:
-        user_message = (
-            f"=== CONVERSATION HISTORY ===\n"
-            f"{formatted_history}\n\n"
-            f"=== LATEST USER QUESTION ===\n"
-            f"{clean_q}\n\n"
-            f"Standalone Search Query:"
-        )
-
-        ai_client = client or get_openai_client()
-        response = ai_client.chat.completions.create(
+        openai_client = client or get_openai_client()
+        response = openai_client.chat.completions.create(
             model=config.CHAT_MODEL,
             messages=[
-                {"role": "system", "content": REWRITER_SYSTEM_PROMPT},
-                {"role": "user", "content": user_message},
+                {"role": "system", "content": REWRITE_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
             ],
             temperature=0.0,
-            max_tokens=100,
+            max_tokens=150,
         )
+        rewritten = response.choices[0].message.content.strip()
+        # Clean quotes if wrapped
+        if (rewritten.startswith('"') and rewritten.endswith('"')) or (
+            rewritten.startswith("'") and rewritten.endswith("'")
+        ):
+            rewritten = rewritten[1:-1].strip()
 
-        raw_output = response.choices[0].message.content or ""
-        rewritten = raw_output.strip()
-
-        # Clean any accidental conversational prefixes or quotation marks
-        rewritten = re.sub(r'^(?:Standalone\s+Search\s+Query|Rewritten\s+Query|Query):\s*', '', rewritten, flags=re.IGNORECASE)
-        rewritten = rewritten.strip('"`\' \n')
-
-        # Fallback if model returned empty
+        # If LLM returned empty, fallback to raw_query
         if not rewritten:
-            return clean_q, False
+            rewritten = raw_query
 
-        was_rewritten = rewritten.lower() != clean_q.lower()
-
-        # Cache result in Redis (1 hour TTL)
-        if is_redis_available():
-            cache_set_json(
-                cache_key,
-                {"rewritten": rewritten, "was_rewritten": was_rewritten},
-                ttl=getattr(config, "REDIS_CACHE_TTL", 3600),
-            )
-
-        if was_rewritten:
-            logger.info("Conversational Query Rewritten: '%s' -> '%s'", clean_q, rewritten)
-
-        return rewritten, was_rewritten
+        # ── Store in Cache ──
+        ttl = getattr(config, "REDIS_CACHE_TTL", 3600)
+        set_cached_rewrite(cache_key, rewritten, ttl=ttl)
+        if not is_dependent:
+            set_cached_rewrite(standalone_key, rewritten, ttl=ttl)
+        return rewritten
 
     except Exception as exc:
-        logger.warning("Query rewrite failed, falling back to original query: %s", exc)
-        return clean_q, False
+        logger.warning(f"Query rewriting failed ({exc}). Falling back to original query.")
+        return raw_query

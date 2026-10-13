@@ -38,5 +38,9 @@ RERANKER_ENABLED = os.getenv("RERANKER_ENABLED", "true").lower() in ("true", "1"
 RERANKER_MODEL = os.getenv("RERANKER_MODEL", "ms-marco-TinyBERT-L-2-v2")
 RERANK_TOP_N = int(os.getenv("RERANK_TOP_N", "20"))  # Retrieve top N candidates from search before re-ranking to k
 
-# Query Rewriter (Conversational Context & Query Resolution)
-QUERY_REWRITE_ENABLED = os.getenv("QUERY_REWRITE_ENABLED", "true").lower() in ("true", "1", "yes")
+# Query Rewriting & Expansion
+QUERY_REWRITER_ENABLED = os.getenv("QUERY_REWRITER_ENABLED", "true").lower() in ("true", "1", "yes")
+QUERY_EXPANSION_ENABLED = os.getenv("QUERY_EXPANSION_ENABLED", "true").lower() in ("true", "1", "yes")
+
+# Question Router
+QUESTION_ROUTER_ENABLED = os.getenv("QUESTION_ROUTER_ENABLED", "true").lower() in ("true", "1", "yes")

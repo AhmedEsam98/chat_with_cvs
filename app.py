@@ -3,9 +3,14 @@ import streamlit as st
 
 import config
 from cache_manager import cache_clear, is_redis_available
-from generation import answer_stream, check_hallucination, route_question
+from generation import answer_stream, check_hallucination
 from ingestion import process_cvs
-from retrieval import retrieve, rewrite_query
+from retrieval import (
+    classify_question,
+    get_out_of_scope_message,
+    retrieve,
+    rewrite_query,
+)
 
 st.set_page_config(page_title="Chat with CVs", page_icon="📄", layout="wide")
 st.title("📄 Chat with CVs")
@@ -44,13 +49,14 @@ with st.sidebar:
 
     top_k = st.slider("Chunks retrieved per question", 3, 20, 10)
 
-    # Cache & Re-ranker indicator
+    # Cache, Re-ranker & Rewriter indicator
     redis_status = "🟢 Redis Connected" if is_redis_available() else "⚪ In-Memory Fallback"
     sem_status = f"⚡ Semantic Active (≥{config.SEMANTIC_CACHE_THRESHOLD})" if getattr(config, "SEMANTIC_CACHE_ENABLED", True) else "Semantic Off"
-    rerank_status = "🎯 FlashRank ON" if getattr(config, "RERANKER_ENABLED", True) else "Re-ranker Off"
-    rewrite_status = "🔄 Rewriter ON" if getattr(config, "QUERY_REWRITE_ENABLED", True) else "Rewriter Off"
+    rerank_status = "🎯 FlashRank ON" if getattr(config, "RERANKER_ENABLED", True) else "Off"
+    rewrite_status = "🔄 Rewriter ON" if getattr(config, "QUERY_REWRITER_ENABLED", True) else "Off"
+    router_status = "🧭 Router ON" if getattr(config, "QUESTION_ROUTER_ENABLED", True) else "Off"
     st.caption(f"Cache: **{redis_status}** • **{sem_status}**")
-    st.caption(f"Pipeline: **{rerank_status}** • **{rewrite_status}**")
+    st.caption(f"Pipeline: **{rerank_status}** • **{rewrite_status}** • **{router_status}**")
 
     if st.session_state.indexed:
         st.subheader("Indexed CVs")
@@ -62,14 +68,17 @@ with st.sidebar:
         st.rerun()
 
 # ---------- Chat ----------
+st.header("2. Chat")
 if not st.session_state.indexed:
     st.info(f"Upload and process at least {config.MIN_CVS} CVs from the sidebar to begin.")
 else:
     for m in st.session_state.messages:
         with st.chat_message(m["role"]):
             st.markdown(m["content"])
-            if m.get("rewritten_query"):
-                st.caption(f"🔄 *Conversational Search:* `{m['rewritten_query']}`")
+            if m.get("rewritten_query") and m["rewritten_query"] != m.get("original_question"):
+                st.caption(f"🔄 **Rewritten Query:** *\"{m['rewritten_query']}\"*")
+            if m.get("router_label") == "NOT_CV_RELATED":
+                st.caption("🧭 **Question Router:** `NOT_CV_RELATED` (Bypassed search)")
             if "sources" in m and m["sources"]:
                 with st.expander("Sources"):
                     for h in m["sources"]:
@@ -95,45 +104,63 @@ else:
                                 st.caption(f"  Reason: {h.get('reason')}")
             if "latency" in m:
                 lat = m["latency"]
-                st.caption(
-                    f"⏱️ **{lat['total']:.2f}s** "
-                    f"(Retrieval: `{lat['retrieval']:.2f}s` | Generation: `{lat['generation']:.2f}s`)"
-                )
+                lat_str = f"Retrieval: `{lat['retrieval']:.2f}s` | Generation: `{lat['generation']:.2f}s`"
+                if lat.get("rewrite", 0) > 0.05:
+                    lat_str = f"Rewrite: `{lat['rewrite']:.2f}s` | " + lat_str
+                if lat.get("router", 0) > 0.05:
+                    lat_str = f"Router: `{lat['router']:.2f}s` | " + lat_str
+                st.caption(f"⏱️ **{lat['total']:.2f}s** ({lat_str})")
 
     if question := st.chat_input("Ask about the candidates..."):
         with st.chat_message("user"):
             st.markdown(question)
+        prior_history = list(st.session_state.messages)
         st.session_state.messages.append({"role": "user", "content": question})
 
         with st.chat_message("assistant"):
-            # 1. Question Routing Gate
-            route = route_question(question)
-            if not route.is_cv_related:
-                reply = route.direct_response
+            # 0. Question Router (Domain Classification)
+            t_rt0 = time.perf_counter()
+            route_label = classify_question(question, history=prior_history)
+            t_router = time.perf_counter() - t_rt0
+
+            if route_label == "NOT_CV_RELATED":
+                reply = get_out_of_scope_message(question)
                 st.markdown(reply)
-                badge = "👋 *Greeting*" if route.is_greeting else "🛑 *Non-CV Query (Bypassed search & LLM)*"
-                st.caption(f"{badge} • Router: `{route.matched_by}`")
+                st.caption(f"🧭 **Question Router:** `NOT_CV_RELATED` • Bypassed search (`{t_router:.2f}s`)")
+
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": reply,
+                    "original_question": question,
+                    "router_label": route_label,
+                    "latency": {
+                        "router": t_router,
+                        "rewrite": 0.0,
+                        "retrieval": 0.0,
+                        "generation": 0.0,
+                        "total": t_router,
+                    },
                 })
             else:
-                # 2. Conversational Query Rewriter (Resolves pronouns and follow-up context)
-                search_query, was_rewritten = rewrite_query(question, st.session_state.messages[:-1])
-                if was_rewritten:
-                    st.caption(f"🔄 *Conversational Search:* `{search_query}`")
+                # 1. Query Rewriter (Conversational Context + Hybrid Expansion)
+                t_rw0 = time.perf_counter()
+                search_query = rewrite_query(question, history=prior_history)
+                t_rewrite = time.perf_counter() - t_rw0
 
-                # Measure retrieval latency
+                # 2. Retrieval
                 t0 = time.perf_counter()
                 hits = retrieve(search_query, top_k)
                 t_retrieval = time.perf_counter() - t0
 
-                # Measure generation latency
+                # 3. Generation
                 t1 = time.perf_counter()
                 reply = st.write_stream(
-                    answer_stream(question, st.session_state.messages, hits))
+                    answer_stream(question, st.session_state.messages, hits, search_query=search_query))
                 t_generation = time.perf_counter() - t1
-                t_total = t_retrieval + t_generation
+                t_total = t_router + t_rewrite + t_retrieval + t_generation
+
+                if search_query != question:
+                    st.caption(f"🔄 **Rewritten Query:** *\"{search_query}\"*")
 
                 if hits:
                     with st.expander("Sources"):
@@ -162,20 +189,26 @@ else:
                                 st.markdown(f"• **Claim:** *{h.get('claim')}*")
                                 st.caption(f"  Reason: {h.get('reason')}")
 
-                st.caption(
-                    f"⏱️ **{t_total:.2f}s** "
-                    f"(Retrieval: `{t_retrieval:.2f}s` | Generation: `{t_generation:.2f}s`)"
-                )
+                lat_str = f"Retrieval: `{t_retrieval:.2f}s` | Generation: `{t_generation:.2f}s`"
+                if t_rewrite > 0.05:
+                    lat_str = f"Rewrite: `{t_rewrite:.2f}s` | " + lat_str
+                if t_router > 0.05:
+                    lat_str = f"Router: `{t_router:.2f}s` | " + lat_str
+                st.caption(f"⏱️ **{t_total:.2f}s** ({lat_str})")
 
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": reply,
-                    "rewritten_query": search_query if was_rewritten else None,
                     "sources": hits,
+                    "original_question": question,
+                    "rewritten_query": search_query if search_query != question else None,
+                    "router_label": route_label,
                     "eval": eval_result,
                     "latency": {
+                        "router": t_router,
+                        "rewrite": t_rewrite,
                         "retrieval": t_retrieval,
                         "generation": t_generation,
                         "total": t_total,
                     },
-                })
+                })
